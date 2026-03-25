@@ -1,0 +1,20 @@
+node_modules
+.next
+out
+.env.local
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Test artifacts
+screenshots/
+videos/
+downloads/
+
+# Test images (except placeholder)
+tests/*.jpg
+tests/*.png
+tests/*.gif
+!tests/test-image.jpg

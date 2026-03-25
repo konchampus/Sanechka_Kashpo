@@ -1,0 +1,298 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600&family=Sinoreta&display=swap');
+
+:root {
+  --primary-bg: #F5F0E6; /* Светлый бежевый фон */
+  --secondary-bg: #E8D9B8; /* Тёплый бежевый */
+  --primary-text: #4B3A2F; /* Тёмно-коричневый текст */
+  --accent-green: #4A7043; /* Зелёный акцент */
+  --accent-brown: #7A5C3A; /* Коричневый акцент */
+  --secondary-brown: #A68A64; /* Вторичный коричневый */
+  --button-brown: #7A5C3A;
+  --button-brown-hover: #5C4529;
+  --card-shadow: 0 4px 16px rgba(122, 92, 58, 0.10);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+body {
+  background-color: var(--primary-bg);
+  font-family: 'Montserrat', sans-serif;
+  color: var(--primary-text);
+  line-height: 1.6;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden !important;
+}
+
+h1, h2, h3, h4 {
+  font-family: 'Sinoreta', serif;
+  color: var(--accent-brown);
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* Навигационная панель */
+.navbar {
+  background-color: var(--secondary-bg);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  padding: 15px 20px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.navbar-brand.logo {
+  font-family: 'Sinoreta', serif;
+  font-size: 1.8rem;
+  color: var(--accent-brown);
+  text-decoration: none;
+}
+
+.nav-link {
+  color: var(--primary-text) !important;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 500;
+  padding: 10px 15px;
+  transition: color 0.3s ease;
+}
+
+.nav-link:hover {
+  color: var(--accent-brown) !important;
+}
+
+.navbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.navbar-toggler {
+  border: none;
+  color: var(--accent-brown);
+}
+
+/* Адаптивность для навигации */
+@media (max-width: 768px) {
+  .navbar-nav {
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .nav-link {
+    padding: 8px 10px;
+  }
+
+  .navbar-brand.logo {
+    font-size: 1.5rem;
+  }
+}
+
+/* Карточки */
+.card {
+  background-color: #fff;
+  border: none;
+  border-radius: 12px;
+  box-shadow: var(--card-shadow);
+  transition: box-shadow 0.3s, transform 0.3s;
+  margin-bottom: 20px;
+}
+
+.card:hover {
+  box-shadow: 0 8px 24px rgba(122, 92, 58, 0.18);
+  transform: translateY(-6px) scale(1.01);
+}
+
+.card-img-top {
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+  object-fit: cover;
+  height: 200px;
+}
+
+.card-body {
+  padding: 20px;
+  text-align: center;
+}
+
+/* Кнопки */
+.btn-primary, .btn-primary:focus {
+  background-color: var(--button-brown);
+  border-color: var(--button-brown);
+  color: #fff;
+  transition: background 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 8px rgba(122, 92, 58, 0.10);
+}
+
+.btn-primary:hover {
+  background-color: var(--button-brown-hover);
+  border-color: var(--button-brown-hover);
+}
+
+.btn-secondary {
+  background-color: var(--secondary-brown);
+  border-color: var(--secondary-brown);
+  border-radius: 8px;
+  padding: 10px 20px;
+}
+
+.btn-secondary:hover {
+  background-color: #8A714F;
+  border-color: #8A714F;
+}
+
+/* Формы */
+.form-control {
+  border-radius: 8px;
+  border: 1px solid var(--secondary-brown);
+  padding: 10px;
+  font-family: 'Montserrat', sans-serif;
+  margin-bottom: 15px;
+}
+
+.form-control:focus {
+  border-color: var(--accent-brown);
+  box-shadow: 0 0 5px rgba(122, 92, 58, 0.2);
+}
+
+/* Сетка */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  margin: -10px;
+}
+
+.col-md-4 {
+  flex: 0 0 33.333%;
+  padding: 10px;
+}
+
+@media (max-width: 768px) {
+  .col-md-4 {
+    flex: 0 0 100%;
+  }
+}
+
+/* Футер */
+footer {
+  background-color: var(--secondary-bg);
+  padding: 20px;
+  text-align: center;
+  font-family: 'Montserrat', sans-serif;
+  color: var(--primary-text);
+  flex-shrink: 0;
+}
+
+/* Анимация загрузки */
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite;
+}
+
+@keyframes skeleton-loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Общие стили для изображений */
+img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+/* Таблицы */
+.table {
+  background-color: var(--primary-bg);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.table-striped tbody tr:nth-of-type(odd) {
+  background-color: #F5E8C7;
+}
+
+.table th, .table td {
+  padding: 12px;
+  vertical-align: middle;
+}
+
+/* Sticky footer */
+.d-flex.flex-column.min-vh-100 {
+  min-height: 100vh;
+}
+
+main.flex-grow-1 {
+  flex: 1 0 auto;
+  min-height: 1px;
+}
+
+html, body, #__next {
+  height: 100%;
+  min-height: 100vh;
+}
+
+#__next {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* Современный минималистичный скроллбар */
+html, body {
+  scrollbar-width: thin;
+  scrollbar-color: #e8d9b8 #fffbe9;
+}
+body::-webkit-scrollbar {
+  width: 7px;
+  background: #fffbe9;
+}
+body::-webkit-scrollbar-thumb {
+  background: #e8d9b8;
+  border-radius: 8px;
+  min-height: 40px;
+  border: 2px solid #fffbe9;
+}
+body::-webkit-scrollbar-thumb:hover {
+  background: #d1c2a0;
+}
+body::-webkit-scrollbar-track {
+  background: #fffbe9;
+  border-radius: 8px;
+}
+
+button {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 1.08rem;
+  font-weight: 600;
+  color: var(--accent-brown);
+  background: #fffbe9;
+  border: 1.5px solid #e8d9b8;
+  border-radius: 12px;
+  padding: 10px 18px;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, box-shadow 0.18s, border 0.18s, transform 0.18s;
+  outline: none;
+  box-shadow: 0 2px 8px rgba(122,92,58,0.08);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+button:hover, button:focus {
+  background: var(--accent-brown);
+  color: #fff;
+  border-color: var(--accent-brown);
+  box-shadow: 0 4px 16px rgba(122,92,58,0.13);
+  transform: translateY(-2px) scale(1.03);
+}
