@@ -198,6 +198,16 @@ const admin = (req, res, next) => {
   next();
 };
 
+// Middleware: декодирует JWT, если он есть и валиден; не блокирует анонимный доступ
+const optionalAuth = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return next();
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+  } catch {}
+  next();
+};
+
 // Регистрация
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -400,9 +410,11 @@ app.delete('/api/admin/products/:id', auth, admin, async (req, res) => {
 });
 
 // Заказы
-app.post('/api/orders', async (req, res) => {
+app.post('/api/orders', optionalAuth, async (req, res) => {
   try {
-    const { userId, guestData, products, promoCode } = req.body;
+    const { guestData, products, promoCode } = req.body;
+    // SECURITY: userId берётся ТОЛЬКО из проверенного JWT, не из тела запроса
+    const userId = req.user?.id || null;
     let discount = 0;
     if (promoCode) {
       const promo = await PromoCode.findOne({ code: promoCode });
@@ -745,20 +757,7 @@ app.use('/robots.txt', (req, res) => {
   res.send('User-agent: *\nDisallow: /admin\nDisallow: /api\n');
 });
 
-// ВРЕМЕННО!
-app.post('/api/create-admin', async (req, res) => {
-  const { email, password, role } = req.body;
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const user = new User({
-    email,
-    password: hashedPassword,
-    name: 'Admin',
-    surname: 'Adminov',
-    role: role || 'admin'
-  });
-  await user.save();
-  res.json({ message: 'Админ создан' });
-});
+// /api/create-admin удалён (был открытым эндпоинтом создания админа). Сидинг — только локально.
 
 // --- Управление пользователями (админ) ---
 app.get('/api/admin/users', auth, admin, async (req, res) => {
