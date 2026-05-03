@@ -142,7 +142,8 @@ const orderSchema = new mongoose.Schema({
   },
   products: [{
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
-    quantity: Number
+    quantity: Number,
+    selectedOptions: [{ name: String, price: Number }]
   }],
   totalPrice: Number,
   promoCode: String,
@@ -461,13 +462,32 @@ app.post('/api/orders', writeLimiter, optionalAuth, async (req, res) => {
     }
 
     // 2. Подгружаем товары + считаем total ДО применения промо (нужно для minOrder).
+    // SECURITY: цены опций берём ТОЛЬКО с сервера, body.price игнорируем (revenue-leak fix).
     const populatedProducts = [];
     for (const item of products) {
       const product = await Product.findById(item.product);
       if (!product) return res.status(404).json({ error: 'Товар не найден' });
-      populatedProducts.push({ product, quantity: item.quantity });
+
+      // Валидируем выбранные опции против продукта: каждая должна существовать и быть enabled.
+      const selectedOptions = [];
+      const requested = Array.isArray(item.selectedOptions) ? item.selectedOptions : [];
+      const seen = new Set();
+      for (const sel of requested) {
+        if (!sel || typeof sel.name !== 'string') continue;
+        if (seen.has(sel.name)) continue; // дедуп — нельзя дважды добавить одну опцию
+        const match = (product.options || []).find(o => o.enabled && o.name === sel.name);
+        if (!match) {
+          return res.status(400).json({ error: `Опция "${sel.name}" недоступна для товара "${product.name}"` });
+        }
+        seen.add(sel.name);
+        selectedOptions.push({ name: match.name, price: Number(match.price) || 0 });
+      }
+      const optionsTotal = selectedOptions.reduce((s, o) => s + o.price, 0);
+      populatedProducts.push({ product, quantity: item.quantity, selectedOptions, optionsTotal });
     }
-    const subtotal = populatedProducts.reduce((sum, x) => sum + (x.product.price || 0) * x.quantity, 0);
+    const subtotal = populatedProducts.reduce(
+      (sum, x) => sum + ((x.product.price || 0) + x.optionsTotal) * x.quantity, 0
+    );
 
     // 3. Атомарный инкремент промо: только если used < usageLimit и subtotal >= minOrder.
     let discount = 0;
@@ -520,7 +540,7 @@ app.post('/api/orders', writeLimiter, optionalAuth, async (req, res) => {
       orderNumber,
       userId,
       guestData,
-      products: populatedProducts.map(p => ({ product: p.product._id, quantity: p.quantity })),
+      products: populatedProducts.map(p => ({ product: p.product._id, quantity: p.quantity, selectedOptions: p.selectedOptions })),
       totalPrice,
       promoCode: promoIncremented || '',
       discount
