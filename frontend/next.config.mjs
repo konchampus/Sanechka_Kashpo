@@ -1,4 +1,7 @@
 const apiOrigin = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const isDev = process.env.NODE_ENV !== 'production';
+// В dev Next.js использует eval() для HMR. Прод-CSP остаётся жёстким — без unsafe-eval/unsafe-inline.
+const scriptSrc = isDev ? "'self' 'unsafe-eval' 'unsafe-inline'" : "'self'";
 
 const nextConfig = {
   images: {
@@ -11,7 +14,7 @@ const nextConfig = {
         headers: [
           {
             key: 'Content-Security-Policy',
-            value: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: ${apiOrigin}; media-src 'self' blob: ${apiOrigin}; connect-src 'self' ${apiOrigin} https://api.ipify.org; object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'self';`
+            value: `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: ${apiOrigin}; media-src 'self' blob: ${apiOrigin}; connect-src 'self' ${apiOrigin} https://api.ipify.org; object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'self';`
           },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },

@@ -58,13 +58,21 @@ export default function Checkout() {
     }
     setErrors({});
     try {
-      const userId = localStorage.getItem('token') ? JSON.parse(atob(localStorage.getItem('token').split('.')[1])).id : null;
+      // userId берётся сервером из JWT (см. POST /api/orders, optionalAuth) — клиентский id не доверяемый.
+      // selectedOptions: отправляем выбранные опции — сервер сам валидирует названия и берёт цены из БД.
+      // promoCode: всегда шлём код, чтобы серверный атомарный $inc used учёл лимит usageLimit.
       const res = await axios.post('/api/orders', {
-        userId,
         guestData: formData,
-        products: cart.map(item => ({ product: item._id, quantity: item.quantity })),
-        promoCode: discount ? '' : promoCode,
-        totalPrice: finalTotal
+        products: cart.map(item => ({
+          product: item._id,
+          quantity: item.quantity,
+          selectedOptions: Array.isArray(item.selectedOptions)
+            ? item.selectedOptions
+                .map(o => (typeof o === 'string' ? { name: o } : (o && typeof o.name === 'string' ? { name: o.name } : null)))
+                .filter(Boolean)
+            : []
+        })),
+        promoCode: promoCode || ''
       });
       localStorage.removeItem('cart');
       window.dispatchEvent(new Event('authChange'));

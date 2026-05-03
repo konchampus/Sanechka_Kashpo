@@ -702,7 +702,7 @@ app.post('/api/promos', auth, admin, async (req, res) => {
   }
 });
 
-app.post('/api/promos/validate', async (req, res) => {
+app.post('/api/promos/validate', writeLimiter, async (req, res) => {
   try {
     const { code } = req.body;
     const promo = await PromoCode.findOne({ code });

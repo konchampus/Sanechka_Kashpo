@@ -236,16 +236,22 @@ export default function Cart() {
                           >
                             <FaMinus />
                           </button>
-                          <input 
-                            type="number" 
-                            value={item.quantity} 
-                            onChange={(e) => updateQuantity(item._id, parseInt(e.target.value) || 1, item.selectedOptions)}
+                          <input
+                            type="number"
+                            value={item.quantity}
+                            onChange={(e) => {
+                              const max = typeof item.stock === 'number' ? item.stock : Infinity;
+                              const v = Math.min(Math.max(parseInt(e.target.value) || 1, 1), max);
+                              updateQuantity(item._id, v, item.selectedOptions);
+                            }}
                             className={styles.qtyInput}
                             min="1"
+                            max={typeof item.stock === 'number' ? item.stock : undefined}
                           />
-                          <button 
+                          <button
                             className={styles.qtyBtn}
                             onClick={() => updateQuantity(item._id, item.quantity + 1, item.selectedOptions)}
+                            disabled={typeof item.stock === 'number' && item.quantity >= item.stock}
                             aria-label="Увеличить количество"
                           >
                             <FaPlus />

@@ -143,4 +143,5 @@ vite.config.ts.timestamp-*
 
 # Pentest scaffolding (local-only)
 /backend/.pentest*.js
+/backend/.dev-bootstrap.js
 /backend/pentest-server.log

@@ -7,10 +7,21 @@ import { getImageUrl } from '../lib/utils';
 import styles from '../styles/Shop.module.css';
 
 export default function ProductCard({ product }) {
+  const outOfStock = typeof product.stock === 'number' && product.stock <= 0;
   const addToCart = () => {
+    if (outOfStock) {
+      showToast('error', 'Товар закончился');
+      return;
+    }
     const cart = JSON.parse(localStorage.getItem('cart') || '[]');
     const existingItem = cart.find(item => item._id === product._id);
     if (existingItem) {
+      // Не превышаем фактический сток (защита от заведомо нерабочего заказа).
+      const max = typeof product.stock === 'number' ? product.stock : Infinity;
+      if (existingItem.quantity >= max) {
+        showToast('error', `Больше ${max} шт «${product.name}» добавить нельзя`);
+        return;
+      }
       existingItem.quantity += 1;
     } else {
       cart.push({ ...product, quantity: 1 });
@@ -55,10 +66,13 @@ export default function ProductCard({ product }) {
       </Link>
       <motion.button
         className={styles.marketCardBtn}
-        whileTap={{ scale: 0.97 }}
+        whileTap={outOfStock ? {} : { scale: 0.97 }}
         onClick={e => { e.preventDefault(); addToCart(); }}
+        disabled={outOfStock}
+        style={outOfStock ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}
+        aria-disabled={outOfStock}
       >
-        <FaShoppingCart className={styles.marketCardBtnIcon} /> В корзину
+        <FaShoppingCart className={styles.marketCardBtnIcon} /> {outOfStock ? 'Нет в наличии' : 'В корзину'}
       </motion.button>
     </motion.div>
   );
