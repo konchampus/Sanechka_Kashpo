@@ -7,6 +7,7 @@ import styles from '../styles/Account.module.css';
 import Head from 'next/head';
 import Link from 'next/link';
 import { getImageUrl } from '../lib/utils';
+import Cookies from 'js-cookie';
 
 export default function Account() {
   const [user, setUser] = useState(null);
@@ -57,6 +58,8 @@ export default function Account() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('cart');
+    Cookies.remove('token');
+    Cookies.remove('role');
     window.dispatchEvent(new Event('authChange'));
     window.location.href = '/';
   };

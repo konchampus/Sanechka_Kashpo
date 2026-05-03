@@ -140,3 +140,7 @@ vite.config.ts.timestamp-*
 
 # Ignore uploaded media
 /backend/uploads/*
+
+# Pentest scaffolding (local-only)
+/backend/.pentest*.js
+/backend/pentest-server.log

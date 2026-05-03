@@ -13,6 +13,8 @@ import { showSuccess, showError, showWarning, showInfo } from '../lib/notificati
 import { useState } from 'react';
 import Cookies from 'js-cookie';
 
+let lastVisitSent = 0;
+
 const CustomCloseButton = ({ closeToast }) => (
   <button onClick={closeToast} style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'absolute', right: 12, top: 12 }}>
     <FaTimes style={{ color: '#7A5C3A', fontSize: '1.3em', opacity: 0.8 }} />
@@ -86,7 +88,6 @@ function MyApp({ Component, pageProps, router }) {
   }, [router.route]);
 
   useEffect(() => {
-    let lastVisitSent = 0;
     (async () => {
       try {
         const now = Date.now();

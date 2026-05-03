@@ -11,29 +11,50 @@ const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 require('dotenv').config();
 const { Readable } = require('stream');
-// const Iconv = require('iconv').Iconv; // УДАЛЕНО!
+
+// SECURITY: запрещаем стартовать со скомпрометированным или дефолтным секретом.
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'qweasdzxc' || process.env.JWT_SECRET.length < 32) {
+  if (process.env.NODE_ENV !== 'test') {
+    console.error('FATAL: JWT_SECRET не задан, слишком короткий, или совпадает со скомпрометированным значением.');
+    process.exit(1);
+  }
+}
+
+// Экранирование пользовательского ввода перед использованием в RegExp / Mongo $regex.
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Дамми-хеш фиксированной длины — чтобы login отрабатывал bcrypt и при отсутствующем юзере (постоянное время).
+const DUMMY_BCRYPT_HASH = bcrypt.hashSync('not-a-real-password-but-needs-to-be-non-empty', 10);
 
 const app = express();
-app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
-app.use(express.json());
+app.set('trust proxy', 1);
+const allowedOrigin = process.env.ALLOWED_ORIGIN || 'http://localhost:3000';
+app.use(cors({ origin: allowedOrigin, credentials: true }));
+app.use(express.json({ limit: '256kb' }));
 
-// ВОССТАНАВЛИВАЮ прямую раздачу папки uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// Удаляю прокси-роут /api/images/:filename
 
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "http://localhost:5000", "http://127.0.0.1:5000"],
-      scriptSrc: ["'self'", "'unsafe-eval'"],
+      imgSrc: ["'self'", "data:", allowedOrigin],
+      scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      connectSrc: ["'self'", "http://localhost:5000", "http://127.0.0.1:5000", "http://localhost:3000", "http://127.0.0.1:3000"]
+      connectSrc: ["'self'", allowedOrigin]
     }
   }
 }));
-// app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 })); // ОТКЛЮЧЕНО для dev, чтобы не было 429
+
+// Глобальный мягкий лимит, чтобы массовые сканеры не клали Mongo.
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 600, standardHeaders: true, legacyHeaders: false }));
+
+// Жёсткий лимит на эндпоинты регистрации/логина/промокодов — против брутфорса и enumeration.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Слишком много попыток, попробуйте позже' }
+});
+const writeLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
 
 // Простая ручная защита от NoSQL-инъекций и XSS
 app.use((req, res, next) => {
@@ -85,12 +106,14 @@ const userSchema = new mongoose.Schema({
   password: { type: String },
   name: String,
   surname: String,
-  phone: String,
+  // unique+sparse: один и тот же телефон нельзя зарегистрировать дважды,
+  // но пустые/отсутствующие телефоны не блокируют регистрацию.
+  phone: { type: String, unique: true, sparse: true },
   whatsapp: Boolean,
   address: String,
   city: String,
   deliveryMethod: String,
-  role: { type: String, default: 'user' }
+  role: { type: String, default: 'user', enum: ['user', 'admin'] }
 });
 const productSchema = new mongoose.Schema({
   productId: { type: String, unique: true, sparse: true }, // 12-значный id
@@ -124,7 +147,7 @@ const orderSchema = new mongoose.Schema({
   totalPrice: Number,
   promoCode: String,
   discount: Number,
-  status: { type: String, default: 'pending' },
+  status: { type: String, default: 'pending', enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled'] },
   createdAt: { type: Date, default: Date.now }
 });
 const bannerSchema = new mongoose.Schema({ image: String, video: String, title: String });
@@ -138,10 +161,12 @@ const promoCodeSchema = new mongoose.Schema({
 const reviewSchema = new mongoose.Schema({
   product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  rating: Number,
-  comment: String,
+  rating: { type: Number, min: 1, max: 5, required: true },
+  comment: { type: String, maxlength: 2000 },
   createdAt: { type: Date, default: Date.now }
 });
+// Один отзыв на пару (товар, пользователь) — защита от спама.
+reviewSchema.index({ product: 1, user: 1 }, { unique: true });
 const visitSchema = new mongoose.Schema({
   date: Date,
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -209,35 +234,31 @@ const optionalAuth = (req, res, next) => {
 };
 
 // Регистрация
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', authLimiter, async (req, res) => {
   try {
     const { email, password, name, surname, phone, whatsapp, address, city, deliveryMethod } = req.body;
+    if (!password || password.length < 8) {
+      return res.status(400).json({ error: 'Пароль должен быть не короче 8 символов' });
+    }
     if (email) {
       const existingUser = await User.findOne({ email });
       if (existingUser) return res.status(400).json({ error: 'Email уже зарегистрирован' });
     }
-    const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
-    const user = new User({
-      email,
-      password: hashedPassword,
-      name,
-      surname,
-      phone,
-      whatsapp,
-      address,
-      city,
-      deliveryMethod
-    });
-    await user.save();
-    // Перенос заказов гостя в профиль по совпадающему телефону
-    if (phone) {
-      await Order.updateMany(
-        { 'guestData.phone': phone, userId: null },
-        { $set: { userId: user._id } }
-      );
+    const hashedPassword = await bcrypt.hash(password, 10);
+    let user;
+    try {
+      user = new User({ email, password: hashedPassword, name, surname, phone, whatsapp, address, city, deliveryMethod, role: 'user' });
+      await user.save();
+    } catch (e) {
+      // Дублирование уникального индекса (email/phone) — единый ответ.
+      if (e && e.code === 11000) return res.status(400).json({ error: 'Email или телефон уже зарегистрирован' });
+      throw e;
     }
+    // SECURITY: НЕ переносим гостевые заказы по совпадающему телефону при регистрации
+    // (был account-takeover вектор: знаешь телефон жертвы → видишь её заказы).
+    // Теперь линковка только через явный POST /api/orders/claim-guest-orders с проверкой владения.
     const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '14d' });
-    res.json({ token });
+    res.json({ token, role: user.role });
   } catch (error) {
     console.error('Ошибка регистрации:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
@@ -245,11 +266,15 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // Логин
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
-    if (!user || !await bcrypt.compare(password, user.password)) {
+    // Equalize timing: всегда дёргаем bcrypt.compare, даже если юзера нет —
+    // иначе разница времени между «нет email» и «неверный пароль» становится оракулом enumeration.
+    const passwordHash = user?.password || DUMMY_BCRYPT_HASH;
+    const passOk = await bcrypt.compare(password || '', passwordHash);
+    if (!user || !user.password || !passOk) {
       return res.status(400).json({ error: 'Неверный email или пароль' });
     }
     const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '14d' });
@@ -288,7 +313,7 @@ app.get('/api/products', async (req, res) => {
   try {
     const { search, category } = req.query;
     const query = {};
-    if (search) query.name = new RegExp(search, 'i');
+    if (search) query.name = new RegExp(escapeRegex(search), 'i');
     if (category) query.category = category;
     const products = await Product.find(query);
     res.json(products);
@@ -389,7 +414,12 @@ app.post('/api/admin/products', auth, admin, upload.fields([
 
 app.put('/api/admin/products/:id', auth, admin, async (req, res) => {
   try {
-    const update = req.body;
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(400).json({ error: 'Некорректный id' });
+    // SECURITY: whitelist полей. Раньше брали весь req.body → mass-assignment
+    // (можно было перезаписать productId, __v и т.п.).
+    const allowed = ['name', 'description', 'price', 'category', 'color', 'options', 'characteristics', 'stock'];
+    const update = {};
+    for (const k of allowed) if (req.body[k] !== undefined) update[k] = req.body[k];
     const product = await Product.findByIdAndUpdate(req.params.id, update, { new: true });
     if (!product) return res.status(404).json({ error: 'Товар не найден' });
     res.json(product);
@@ -410,52 +440,92 @@ app.delete('/api/admin/products/:id', auth, admin, async (req, res) => {
 });
 
 // Заказы
-app.post('/api/orders', optionalAuth, async (req, res) => {
+app.post('/api/orders', writeLimiter, optionalAuth, async (req, res) => {
+  // Локальный «компенсирующий журнал» для отката stock/promo если что-то упадёт после части изменений
+  // (mongoose-транзакций нет — кластер однонодовый, так что best-effort).
+  const decremented = [];
+  let promoIncremented = null;
   try {
     const { guestData, products, promoCode } = req.body;
-    // SECURITY: userId берётся ТОЛЬКО из проверенного JWT, не из тела запроса
     const userId = req.user?.id || null;
-    let discount = 0;
-    if (promoCode) {
-      const promo = await PromoCode.findOne({ code: promoCode });
-      if (promo && promo.used < promo.usageLimit) {
-        discount = promo.discount;
-        promo.used += 1;
-        await promo.save();
+
+    // 1. Валидация payload — против отрицательных/огромных количеств и кривых id.
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ error: 'Заказ пустой' });
+    }
+    for (const item of products) {
+      if (!item || !item.product || !mongoose.Types.ObjectId.isValid(item.product)
+          || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 1000) {
+        return res.status(400).json({ error: 'Некорректная позиция в заказе' });
       }
     }
-    // Получаем объекты товаров по id
-    const populatedProducts = await Promise.all(products.map(async (item) => {
+
+    // 2. Подгружаем товары + считаем total ДО применения промо (нужно для minOrder).
+    const populatedProducts = [];
+    for (const item of products) {
       const product = await Product.findById(item.product);
-      if (!product) throw new Error('Товар не найден');
-      return { product, quantity: item.quantity };
-    }));
-    const totalPrice = populatedProducts.reduce((sum, item) => sum + item.product.price * item.quantity, 0) * (1 - discount / 100);
-    // Новый автоинкрементный номер заказа
-    let orderNumber;
-    let counter = await OrderCounter.findOneAndUpdate(
-      { key: 'orderNumber' },
-      { $inc: { value: 1 } },
-      { new: true, upsert: true }
+      if (!product) return res.status(404).json({ error: 'Товар не найден' });
+      populatedProducts.push({ product, quantity: item.quantity });
+    }
+    const subtotal = populatedProducts.reduce((sum, x) => sum + (x.product.price || 0) * x.quantity, 0);
+
+    // 3. Атомарный инкремент промо: только если used < usageLimit и subtotal >= minOrder.
+    let discount = 0;
+    if (promoCode) {
+      const promo = await PromoCode.findOneAndUpdate(
+        {
+          code: promoCode,
+          $expr: { $lt: ['$used', '$usageLimit'] },
+          $or: [{ minOrder: { $exists: false } }, { minOrder: { $lte: subtotal } }]
+        },
+        { $inc: { used: 1 } },
+        { new: true }
+      );
+      if (promo) {
+        discount = promo.discount || 0;
+        promoIncremented = promo.code;
+      }
+      // Иначе — молча игнорируем промокод (как раньше); фронт получит финальную цену в ответе.
+    }
+    const totalPrice = subtotal * (1 - discount / 100);
+
+    // 4. Атомарный декремент стока для каждой позиции с откатом при провале.
+    for (const item of populatedProducts) {
+      if (typeof item.product.stock !== 'number') continue;
+      const updated = await Product.findOneAndUpdate(
+        { _id: item.product._id, stock: { $gte: item.quantity } },
+        { $inc: { stock: -item.quantity } },
+        { new: true }
+      );
+      if (!updated) {
+        // Rollback всё уже декрементированное и инкрементированный промо.
+        for (const d of decremented) {
+          await Product.findByIdAndUpdate(d.id, { $inc: { stock: d.qty } });
+        }
+        if (promoIncremented) {
+          await PromoCode.findOneAndUpdate({ code: promoIncremented }, { $inc: { used: -1 } });
+        }
+        return res.status(409).json({ error: `Недостаточно товара "${item.product.name}" на складе` });
+      }
+      decremented.push({ id: item.product._id, qty: item.quantity });
+    }
+
+    // 5. Номер заказа — атомарный счётчик.
+    const counter = await OrderCounter.findOneAndUpdate(
+      { key: 'orderNumber' }, { $inc: { value: 1 } }, { new: true, upsert: true }
     );
-    orderNumber = counter.value;
+    const orderNumber = counter.value;
+
     const order = new Order({
       orderNumber,
       userId,
       guestData,
       products: populatedProducts.map(p => ({ product: p.product._id, quantity: p.quantity })),
       totalPrice,
-      promoCode,
+      promoCode: promoIncremented || '',
       discount
     });
     await order.save();
-    // --- Уменьшаем остатки ---
-    for (const item of populatedProducts) {
-      if (typeof item.product.stock === 'number') {
-        item.product.stock = Math.max(0, item.product.stock - item.quantity);
-        await item.product.save();
-      }
-    }
     let userInfo = '';
     if (userId) {
       const user = await User.findById(userId);
@@ -475,6 +545,13 @@ app.post('/api/orders', optionalAuth, async (req, res) => {
     res.json({ orderNumber });
   } catch (error) {
     console.error('Ошибка создания заказа:', error);
+    // Best-effort rollback на любой ошибке после декремента стока / инкремента промо.
+    for (const d of decremented) {
+      try { await Product.findByIdAndUpdate(d.id, { $inc: { stock: d.qty } }); } catch {}
+    }
+    if (promoIncremented) {
+      try { await PromoCode.findOneAndUpdate({ code: promoIncremented }, { $inc: { used: -1 } }); } catch {}
+    }
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
@@ -510,19 +587,29 @@ app.put('/api/admin/orders/:id', auth, admin, async (req, res) => {
   }
 });
 
-// Привязка guest-заказов к userId по телефону/email
+// Привязка guest-заказов к userId — только по СОБСТВЕННОМУ телефону/email юзера.
 app.post('/api/orders/claim-guest-orders', auth, async (req, res) => {
   try {
     const { phone, email } = req.body;
     if (!phone && !email) return res.status(400).json({ error: 'Не указан телефон или email' });
-    const userId = req.user.id;
+    const me = await User.findById(req.user.id).select('email phone');
+    if (!me) return res.status(404).json({ error: 'Пользователь не найден' });
+    // SECURITY: разрешаем линковать только те guest-заказы, где phone/email
+    // совпадают с теми, что записаны в профиле текущего юзера.
+    // Раньше здесь принимались любые phone/email из тела → IDOR на чужие заказы.
+    if (phone && phone !== me.phone) {
+      return res.status(403).json({ error: 'Этот телефон не привязан к вашему аккаунту' });
+    }
+    if (email && email !== me.email) {
+      return res.status(403).json({ error: 'Этот email не привязан к вашему аккаунту' });
+    }
     let updated = 0;
     if (phone) {
-      const r = await Order.updateMany({ 'guestData.phone': phone, userId: null }, { $set: { userId } });
+      const r = await Order.updateMany({ 'guestData.phone': phone, userId: null }, { $set: { userId: req.user.id } });
       updated += r.modifiedCount || r.nModified || 0;
     }
     if (email) {
-      const r = await Order.updateMany({ 'guestData.email': email, userId: null }, { $set: { userId } });
+      const r = await Order.updateMany({ 'guestData.email': email, userId: null }, { $set: { userId: req.user.id } });
       updated += r.modifiedCount || r.nModified || 0;
     }
     res.json({ updated });
@@ -647,10 +734,13 @@ app.post('/api/reviews', auth, async (req, res) => {
   }
 });
 
-// Статистика
-app.post('/api/visits', async (req, res) => {
+// Статистика — приём визита.
+// SECURITY: ip всегда из соединения, userId — только из проверенного JWT.
+// Раньше принимали то и другое из тела → можно было фабриковать визиты от чужого имени.
+app.post('/api/visits', writeLimiter, optionalAuth, async (req, res) => {
   try {
-    const { userId, ip } = req.body;
+    const ip = req.ip;
+    const userId = req.user?.id || null;
     await Visit.create({ date: new Date(), userId, ip });
     res.json({ message: 'Визит записан' });
   } catch (error) {
@@ -726,18 +816,15 @@ app.get('/api/admin/stats/export', auth, admin, async (req, res) => {
   }
 });
 
-// Тест Telegram
-app.get('/api/test-telegram', async (req, res) => {
+// Тест Telegram — теперь только под админом, чтобы нельзя было спамить владельца извне.
+app.get('/api/test-telegram', auth, admin, async (req, res) => {
   try {
-    if (bot) {
-      await bot.telegram.sendMessage(process.env.ADMIN_TELEGRAM_ID, 'Тестовое сообщение от SanRottan');
-      res.json({ status: 'Сообщение отправлено' });
-    } else {
-      res.status(500).json({ error: 'Telegram бот не инициализирован' });
-    }
+    if (!bot) return res.status(503).json({ error: 'Telegram бот не инициализирован' });
+    await bot.telegram.sendMessage(process.env.ADMIN_TELEGRAM_ID, 'Тестовое сообщение от SanRottan');
+    res.json({ status: 'Сообщение отправлено' });
   } catch (err) {
     console.error('Ошибка теста Telegram:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Ошибка отправки' });
   }
 });
 
@@ -764,7 +851,7 @@ app.get('/api/admin/users', auth, admin, async (req, res) => {
   try {
     const { search } = req.query;
     const query = {};
-    if (search) query.email = new RegExp(search, 'i');
+    if (search) query.email = new RegExp(escapeRegex(search), 'i');
     const users = await User.find(query).select('-password');
     res.json(users);
   } catch (error) {
@@ -796,17 +883,16 @@ app.delete('/api/admin/users/:id', auth, admin, async (req, res) => {
 });
 
 // --- Аналитика: приём пользовательских событий ---
-// const analyticsRateLimit = {};
-app.post('/api/analytics/event', async (req, res) => {
+const ALLOWED_EVENT_TYPES = new Set(['visit', 'click', 'scroll', 'pageview', 'addtocart', 'purchase', 'search']);
+app.post('/api/analytics/event', writeLimiter, optionalAuth, async (req, res) => {
   try {
-    const { userId, type, page, timestamp, referrer, userAgent, ...details } = req.body;
-    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-    const key = `${ip}_${type}_${page}`;
-    const now = Date.now();
-    // if (analyticsRateLimit[key] && now - analyticsRateLimit[key] < 200) { // Удален глобальный rateLimit
-    //   return res.status(429).json({ error: 'Too many events' });
-    // }
-    // analyticsRateLimit[key] = now; // Удален глобальный rateLimit
+    const { type, page, timestamp, referrer, userAgent, ...details } = req.body;
+    if (!ALLOWED_EVENT_TYPES.has(type)) return res.status(400).json({ error: 'Неизвестный тип события' });
+    if (typeof page !== 'string' || page.length > 1024) return res.status(400).json({ error: 'page обязателен' });
+    // SECURITY: ограничиваем размер details (раньше принимали что угодно — DOS-фарш для Mongo).
+    if (JSON.stringify(details).length > 4096) return res.status(413).json({ error: 'details слишком большой' });
+    const ip = req.ip;
+    const userId = req.user?.id || null; // больше не верим userId из тела
     await AnalyticsEvent.create({ userId, ip, type, page, timestamp: timestamp ? new Date(timestamp) : new Date(), referrer, userAgent, details });
     res.json({ ok: true });
   } catch (e) {
@@ -869,9 +955,9 @@ app.get('/api/admin/analytics/events', auth, isAdmin, async (req, res) => {
   const query = {};
   if (type) query.type = type;
   if (search) query.$or = [
-    { page: { $regex: search, $options: 'i' } },
-    { userId: { $regex: search, $options: 'i' } },
-    { referrer: { $regex: search, $options: 'i' } }
+    { page:     { $regex: escapeRegex(search), $options: 'i' } },
+    { userId:   { $regex: escapeRegex(search), $options: 'i' } },
+    { referrer: { $regex: escapeRegex(search), $options: 'i' } }
   ];
   const events = await AnalyticsEvent.find(query).sort({ timestamp: -1 }).skip(skip).limit(Number(limit));
   const total = await AnalyticsEvent.countDocuments(query);
@@ -927,10 +1013,15 @@ app.post('/api/admin/products/:id/media', auth, admin, upload.single('media'), a
 });
 
 // 2. Удалить фото/видео из товара (и с диска)
+const UPLOADS_DIR = path.resolve(__dirname, 'uploads');
+const isSafeMediaUrl = (u) => typeof u === 'string' && /^\/uploads\/[A-Za-z0-9._\-]+$/.test(u);
+
 app.delete('/api/admin/products/:id/media', auth, admin, async (req, res) => {
   try {
     const { url } = req.query;
-    if (!url) return res.status(400).json({ error: 'Не указан url' });
+    // SECURITY: принимаем только канонический /uploads/<basename>, никаких слешей/двоеточий внутри.
+    if (!isSafeMediaUrl(url)) return res.status(400).json({ error: 'Некорректный url' });
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(400).json({ error: 'Некорректный id' });
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Товар не найден' });
     let changed = false;
@@ -943,14 +1034,11 @@ app.delete('/api/admin/products/:id/media', auth, admin, async (req, res) => {
       changed = true;
     }
     if (!changed) return res.status(404).json({ error: 'Медиа не найдено у товара' });
-    // Удаляем файл с диска
-    const filename = decodeURIComponent(url.split('/').pop());
-    const filePath = path.join(__dirname, 'uploads', filename);
-    if (fs.existsSync(filePath)) {
+    // Удаляем файл с диска. Защита: путь должен оставаться внутри UPLOADS_DIR.
+    const filename = path.basename(url);
+    const filePath = path.resolve(UPLOADS_DIR, filename);
+    if (filePath.startsWith(UPLOADS_DIR + path.sep) && fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      console.log('Файл удален:', filePath);
-    } else {
-      console.warn('Файл для удаления не найден:', filePath);
     }
     await product.save();
     res.json({ message: 'Медиа удалено' });
@@ -960,14 +1048,21 @@ app.delete('/api/admin/products/:id/media', auth, admin, async (req, res) => {
   }
 });
 
-// 3. Обновить порядок медиа (drag&drop)
+// 3. Обновить порядок медиа (drag&drop) — принимаем только URL'ы из /uploads.
 app.put('/api/admin/products/:id/media-order', auth, admin, async (req, res) => {
   try {
     const { images, videos } = req.body;
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(400).json({ error: 'Некорректный id' });
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Товар не найден' });
-    if (images && Array.isArray(images)) product.images = images;
-    if (videos && Array.isArray(videos)) product.videos = videos;
+    if (images !== undefined) {
+      if (!Array.isArray(images) || !images.every(isSafeMediaUrl)) return res.status(400).json({ error: 'images: ожидается массив /uploads/имя_файла' });
+      product.images = images;
+    }
+    if (videos !== undefined) {
+      if (!Array.isArray(videos) || !videos.every(isSafeMediaUrl)) return res.status(400).json({ error: 'videos: ожидается массив /uploads/имя_файла' });
+      product.videos = videos;
+    }
     await product.save();
     res.json({ message: 'Порядок медиа обновлён', images: product.images, videos: product.videos });
   } catch (error) {

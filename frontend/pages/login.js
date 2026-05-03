@@ -47,8 +47,8 @@ export default function Login() {
               type="email"
               className={styles.authInput}
               placeholder="Email"
-              value={formData.email.replace(/</g, '').replace(/>/g, '')}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value.replace(/</g, '').replace(/>/g, '') })}
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               required
             />
           </div>
@@ -60,8 +60,8 @@ export default function Login() {
               type={showPassword ? 'text' : 'password'}
               className={styles.authInput}
               placeholder="Пароль"
-              value={formData.password.replace(/</g, '').replace(/>/g, '')}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value.replace(/</g, '').replace(/>/g, '') })}
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               required
             />
             <button type="button" className={styles.showPasswordBtn} onClick={() => setShowPassword(v => !v)} tabIndex={-1} aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}>

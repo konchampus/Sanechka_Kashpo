@@ -21,7 +21,8 @@ export default function Register() {
       if (res.data.token) {
         localStorage.setItem('token', res.data.token);
         Cookies.set('token', res.data.token);
-        Cookies.set('role', 'user', { expires: 14 });
+        // Берём роль из ответа сервера; 'user' — fallback, если backend не вернёт role
+        Cookies.set('role', res.data.role || 'user', { expires: 14 });
         toast.success('Регистрация успешна!');
         window.dispatchEvent(new Event('authChange'));
         router.push('/account');

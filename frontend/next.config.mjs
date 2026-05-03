@@ -1,3 +1,5 @@
+const apiOrigin = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
 const nextConfig = {
   images: {
     domains: ['localhost']
@@ -9,7 +11,7 @@ const nextConfig = {
         headers: [
           {
             key: 'Content-Security-Policy',
-            value: "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: http://localhost:5000; media-src 'self' blob: http://localhost:5000; connect-src 'self' http://localhost:5000 https://api.ipify.org; object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'self';"
+            value: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: ${apiOrigin}; media-src 'self' blob: ${apiOrigin}; connect-src 'self' ${apiOrigin} https://api.ipify.org; object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'self';`
           },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },

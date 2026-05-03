@@ -5,7 +5,8 @@ export function getImageUrl(path) {
   if (path.startsWith('/images/')) return path;
   // Абсолютный url для dev
   const filename = path.split('/').pop();
-  return `http://localhost:5000/uploads/${encodeURIComponent(filename)}`;
+  const apiOrigin = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+  return `${apiOrigin}/uploads/${encodeURIComponent(filename)}`;
 }
 
 // Подробный расчет корзины с опциями и скидкой
